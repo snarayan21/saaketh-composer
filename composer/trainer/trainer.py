@@ -2210,6 +2210,9 @@ class Trainer:
         Returns:
             Dict[str, torch.Tensor]: a dictionary containing the total loss and individual losses if available.
         """
+        import torch._dynamo
+        torch._dynamo.config.suppress_errors = True
+        
         assert self._train_data_spec is not None, 'The train data spec should be set on __init__ or fit()'
 
         # Cache the device batch, because `self.state.batch` gets overridden in microbatching loop.
