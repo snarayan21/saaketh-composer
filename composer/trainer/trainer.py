@@ -2236,9 +2236,10 @@ class Trainer:
                 if self._use_closures():
                     for optimizer in self.state.optimizers:
                         if use_grad_scaling:
-                            self.state.scaler.step(optimizer,
+                            explanation = torch._dynamo.explain(self.state.scaler.step(optimizer,
                                                    closure=lambda loss_dict=total_loss_dict, **kwargs: self.
-                                                   _train_microbatches(microbatches, loss_dict, **kwargs))
+                                                   _train_microbatches(microbatches, loss_dict, **kwargs)))
+                            print(explanation)
                         else:
                             optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
                                 microbatches, loss_dict, **kwargs).item())
