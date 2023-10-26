@@ -2212,7 +2212,7 @@ class Trainer:
         """
         import torch._dynamo
         torch._dynamo.config.suppress_errors = True
-        
+
         assert self._train_data_spec is not None, 'The train data spec should be set on __init__ or fit()'
 
         # Cache the device batch, because `self.state.batch` gets overridden in microbatching loop.
@@ -2236,13 +2236,16 @@ class Trainer:
                 if self._use_closures():
                     for optimizer in self.state.optimizers:
                         if use_grad_scaling:
+                            print("in first branch")
                             explanation = torch._dynamo.explain(self.state.scaler.step(optimizer,
                                                    closure=lambda loss_dict=total_loss_dict, **kwargs: self.
                                                    _train_microbatches(microbatches, loss_dict, **kwargs)))
                             print(explanation)
                         else:
-                            optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
-                                microbatches, loss_dict, **kwargs).item())
+                            print("in first branch")
+                            explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
+                                microbatches, loss_dict, **kwargs).item()))
+                            print(explanation)
                 else:
                     self._train_microbatches(microbatches, total_loss_dict)
                     if not self.state.deepspeed_enabled:
