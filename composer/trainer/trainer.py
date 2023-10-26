@@ -2242,7 +2242,7 @@ class Trainer:
                                                    _train_microbatches(microbatches, loss_dict, **kwargs)))
                             print(explanation)
                         else:
-                            print("in first branch")
+                            print("in second branch")
                             explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
                                 microbatches, loss_dict, **kwargs).item()))
                             print(explanation)
