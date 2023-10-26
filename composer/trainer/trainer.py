@@ -2236,16 +2236,16 @@ class Trainer:
                 if self._use_closures():
                     for optimizer in self.state.optimizers:
                         if use_grad_scaling:
-                            print("in first branch")
-                            explanation = torch._dynamo.explain(self.state.scaler.step(optimizer,
+                            self.state.scaler.step(optimizer,
                                                    closure=lambda loss_dict=total_loss_dict, **kwargs: self.
-                                                   _train_microbatches(microbatches, loss_dict, **kwargs)))
-                            print(explanation)
+                                                   _train_microbatches(microbatches, loss_dict, **kwargs))
+                            
                         else:
-                            print("in second branch")
-                            explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
-                                microbatches, loss_dict, **kwargs).item()))
-                            print(explanation)
+                            # explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
+                            #     microbatches, loss_dict, **kwargs).item()))
+                            # print(explanation)
+                            optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
+                                microbatches, loss_dict, **kwargs).item())
                 else:
                     self._train_microbatches(microbatches, total_loss_dict)
                     if not self.state.deepspeed_enabled:
@@ -2347,6 +2347,8 @@ class Trainer:
 
             for microbatch_idx, self.state.batch in enumerate(microbatches):
                 is_final_microbatch = microbatch_idx + 1 == len(microbatches)
+                explanation = torch._dynamo.explain(self._train_microbatch, use_grad_scaling, current_batch_size, is_final_microbatch)
+                print(explanation)
                 microbatch_loss_dict = self._train_microbatch(use_grad_scaling, current_batch_size, is_final_microbatch)
 
                 # Aggregate each loss in microbatch_loss_dict into total_loss_dict
