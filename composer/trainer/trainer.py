@@ -2241,9 +2241,6 @@ class Trainer:
                                                    _train_microbatches(microbatches, loss_dict, **kwargs))
                             
                         else:
-                            # explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
-                            #     microbatches, loss_dict, **kwargs).item()))
-                            # print(explanation)
                             optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
                                 microbatches, loss_dict, **kwargs).item())
                 else:
