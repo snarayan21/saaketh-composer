@@ -2241,9 +2241,6 @@ class Trainer:
                                                    _train_microbatches(microbatches, loss_dict, **kwargs))
                             
                         else:
-                            # explanation = torch._dynamo.explain(optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
-                            #     microbatches, loss_dict, **kwargs).item()))
-                            # print(explanation)
                             optimizer.step(closure=lambda loss_dict=total_loss_dict, **kwargs: self._train_microbatches(
                                 microbatches, loss_dict, **kwargs).item())
                 else:
@@ -2347,8 +2344,6 @@ class Trainer:
 
             for microbatch_idx, self.state.batch in enumerate(microbatches):
                 is_final_microbatch = microbatch_idx + 1 == len(microbatches)
-                explanation = torch._dynamo.explain(self._train_microbatch, use_grad_scaling, current_batch_size, is_final_microbatch)
-                print(explanation)
                 microbatch_loss_dict = self._train_microbatch(use_grad_scaling, current_batch_size, is_final_microbatch)
 
                 # Aggregate each loss in microbatch_loss_dict into total_loss_dict
