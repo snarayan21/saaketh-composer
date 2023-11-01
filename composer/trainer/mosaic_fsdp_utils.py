@@ -27,7 +27,7 @@ from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_tra
 from torch.distributed.utils import _replace_by_prefix
 
 from composer.core import Precision
-from composer.utils import dist, using_torch_2
+from composer.utils import dist
 
 if TYPE_CHECKING:
     if version.parse(torch.__version__) >= version.parse('2.0.1') and version.parse(
@@ -40,7 +40,7 @@ SHARDING_MAP = {
     'FULL_SHARD': ShardingStrategy.FULL_SHARD,
 }
 
-if using_torch_2():
+if version.parse(torch.__version__) >= version.parse('2.1.0'):
     SHARDING_MAP['_HYBRID_SHARD_ZERO2'] = ShardingStrategy._HYBRID_SHARD_ZERO2
     SHARDING_MAP['HYBRID_SHARD'] = ShardingStrategy.HYBRID_SHARD
 
