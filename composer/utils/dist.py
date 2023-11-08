@@ -522,9 +522,9 @@ def initialize_dist(device: Union[str, Device], timeout: float = 300.0):
     if dist_env_vars_match_defaults:
         # Fill in the remaining single-rank variables
         os.environ.update(dist_env_var_defaults)
-        dist.init_process_group('mpi', store=dist.HashStore(), world_size=1, rank=0)
+        dist.init_process_group(backend='mpi', store=dist.HashStore(), world_size=1, rank=0)
     else:
-        dist.init_process_group('mpi', timeout=timeout_timedelta)
+        dist.init_process_group(backend='mpi', timeout=timeout_timedelta)
 
 
 def get_sampler(dataset: torch.utils.data.Dataset, *, drop_last: bool = False, shuffle: bool = False):
