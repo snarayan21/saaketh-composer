@@ -525,8 +525,8 @@ def initialize_dist(device: Union[str, Device], timeout: float = 300.0):
         #dist.init_process_group(device_obj.dist_backend, store=dist.HashStore(), world_size=1, rank=0)
         dist.init_process_group('cpu:gloo,cuda:nccl', store=dist.HashStore(), world_size=1, rank=0)
     else:
-        #dist.init_process_group(device_obj.dist_backend, store=dist.HashStore(), world_size=1, rank=0)
-        dist.init_process_group('cpu:gloo,cuda:nccl', store=dist.HashStore(), world_size=1, rank=0)
+        #dist.init_process_group(device_obj.dist_backend, timeout=timeout_timedelta)
+        dist.init_process_group('cpu:gloo,cuda:nccl', timeout=timeout_timedelta)
 
 
 def get_sampler(dataset: torch.utils.data.Dataset, *, drop_last: bool = False, shuffle: bool = False):
