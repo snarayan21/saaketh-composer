@@ -757,3 +757,52 @@ def _sharded_pre_load_state_dict_hook(
             state_dict[fqn_from_global_root] = param.to_local()
 
     _enter_unshard_params_ctx(module, fsdp_state, writeback=True)
+
+if version.parse(torch.__version__) >= version.parse('2.1.0') and version.parse(
+        torch.__version__) < version.parse('2.1.1'):
+    # This function patch is only valid for torch version 2.1.0.
+    from torch import Tensor
+    from torch.distributed.utils import _p_assert
+
+    def _all_gather_flat_param_int8(
+            self,
+            padded_unsharded_flat_param: Tensor,
+        ) -> Tensor:
+            """
+            All-gathers the handle's flat parameter to the destination
+            ``padded_unsharded_flat_param``, and switches to using the all-gathered
+            tensor. Compresses to int8 before the all-gather and decompresses after.
+            """
+            _p_assert(
+                hasattr(self, "process_group") and hasattr(self, "world_size"),
+                "Expects a process group and world size to have been set via `shard()`",
+            )
+            sharded_flat_param = self.flat_param.data
+            expected_numel = sharded_flat_param.numel() * self.world_size
+            _p_assert(
+                padded_unsharded_flat_param.numel() == expected_numel,
+                f"Expects {expected_numel} numel but got {padded_unsharded_flat_param.numel()}",
+            )
+
+            # HACK this should be handled by C10D
+            if sharded_flat_param.is_cpu:  # type: ignore[attr-defined]
+                tensor_list = list(
+                    torch.chunk(
+                        padded_unsharded_flat_param, dist.get_world_size(self.process_group)
+                    )
+                )
+                work = dist.all_gather(
+                    tensor_list, sharded_flat_param, group=self.process_group
+                )
+            else:
+                computation_dtype = sharded_flat_param.dtype
+                # Compress to int8 before all-gather
+                sharded_flat_param = sharded_flat_param.to(torch.int8)
+                dist.all_gather_into_tensor(
+                    padded_unsharded_flat_param,
+                    sharded_flat_param,
+                    self.process_group,
+                )
+                # Decompress back to computation dtype
+                padded_unsharded_flat_param = padded_unsharded_flat_param.to(computation_dtype)
+            return padded_unsharded_flat_param

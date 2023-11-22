@@ -52,3 +52,18 @@ def patch_pytorch():
 
     elif version.parse(torch.__version__) >= version.parse('2.1.1'):
         raise NotImplementedError(f'FullyShardedDataParallel is not supported for torch >= 2.2.0')
+    
+def patch_fsdp_int8_allgather():
+    """Patches only the FSDP all gather function to use int8."""
+    if version.parse(torch.__version__) < version.parse('2.1.0'):
+        raise NotImplementedError(f'Not supported for torch < 2.1.0')
+    elif version.parse(torch.__version__) < version.parse('2.1.1'):
+        # Monkey patch for torch == 2.1.0 only.
+        from torch.distributed.fsdp import flat_param
+        from composer.trainer.mosaic_fsdp_utils import _all_gather_flat_param_int8
+
+        # Modify flat param all gather to use int8
+        flat_param._all_gather_flat_param = _all_gather_flat_param_int8
+        
+    elif version.parse(torch.__version__) >= version.parse('2.1.1'):
+        raise NotImplementedError(f'FullyShardedDataParallel is not supported for torch >= 2.2.0')
