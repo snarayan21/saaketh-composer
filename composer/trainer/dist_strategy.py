@@ -339,19 +339,19 @@ def prepare_fsdp_module(
     # The PR fixing this bug is merged into PyTorch, but it hasn't made its way into a release yet.
     # Instead a user needs to pass in `None` as param_dtype to have the parameters as torch.float32.
     # TODO: remove these checks when PyTorch has a release that includes the fix.
-    if sharding_map_key != 'NO_SHARD':
-        if (precision == Precision.AMP_FP16 and param_dtype not in [torch.float16, None] or
-                precision == Precision.AMP_BF16 and param_dtype not in [torch.bfloat16, None]):
-            raise ValueError(
-                f'FSDP in PyTorch 1.13 does not support precision `{precision}` with sharding strategy `{sharding_strategy}` '
-                f'and param_dtype `{param_dtype}.` Consider using one of the predefined mixed_precision strategies '
-                "(choose: `'FULL'`, `'DEFAULT'`, `'PURE'`)")
+    # if sharding_map_key != 'NO_SHARD':
+    #     if (precision == Precision.AMP_FP16 and param_dtype not in [torch.float16, None] or
+    #             precision == Precision.AMP_BF16 and param_dtype not in [torch.bfloat16, None]):
+    #         raise ValueError(
+    #             f'FSDP in PyTorch 1.13 does not support precision `{precision}` with sharding strategy `{sharding_strategy}` '
+    #             f'and param_dtype `{param_dtype}.` Consider using one of the predefined mixed_precision strategies '
+    #             "(choose: `'FULL'`, `'DEFAULT'`, `'PURE'`)")
 
-        if param_dtype == torch.float32:
-            raise ValueError(
-                f'FSDP in PyTorch 1.13 does not support param_dtype `{param_dtype}` with sharding_strategy `{sharding_map_key}` '
-                f'Consider using `amp` or `bf16` for precision or setting param_dtype in mixed_precision to `None` '
-                f'with sharding strategy `{sharding_map_key}.`')
+    #     if param_dtype == torch.float32:
+    #         raise ValueError(
+    #             f'FSDP in PyTorch 1.13 does not support param_dtype `{param_dtype}` with sharding_strategy `{sharding_map_key}` '
+    #             f'Consider using `amp` or `bf16` for precision or setting param_dtype in mixed_precision to `None` '
+    #             f'with sharding strategy `{sharding_map_key}.`')
 
     backward_prefetch = BACKWARD_PREFETCH_MAP[fsdp_config['backward_prefetch'].upper()]
     activation_checkpointing = fsdp_config['activation_checkpointing']
