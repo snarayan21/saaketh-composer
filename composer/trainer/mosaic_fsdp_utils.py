@@ -62,10 +62,18 @@ def _get_torch_dtype(dtype: Union[Precision, str]):
         return torch.float16
     elif dtype in ['bfloat16', 'bfloat', 'torch.bfloat16', 'bf16', 'amp_bf16']:
         return torch.bfloat16
-    elif dtype in ['int8']:
-        warnings.warn('Using int8 dtype is experimental. Make sure you are correctly quantizing \
-                      and dequantizing during training.')
-        return torch.int8
+    elif dtype == 'float8_e5m2':
+        if version.parse(torch.__version__) < version.parse('2.1.0'):
+            raise ValueError('float8_e5m2 is only supported for torch >= 2.1.0')
+        warnings.warn('Using float8_e5m2 dtype is experimental. Make sure you are correctly \
+                      quantizing and dequantizing during training.')
+        return torch.float8_e5m2
+    elif dtype == 'float8_e4m3fn':
+        if version.parse(torch.__version__) < version.parse('2.1.0'):
+            raise ValueError('float8_e4m3fn is only supported for torch >= 2.1.0')
+        warnings.warn('Using float8_e4m3fn dtype is experimental. Make sure you are correctly \
+                      quantizing and dequantizing during training.')
+        return torch.float8_e4m3fn
     elif dtype in ['float8', 'torch.float8', 'fp8', 'amp_fp8']:
         if hasattr(torch, 'float8'):
             raise NotImplementedError('Torch has enabled float8. This should be updated to `return torch.float8`')
