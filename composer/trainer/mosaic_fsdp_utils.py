@@ -798,6 +798,8 @@ if version.parse(torch.__version__) >= version.parse('2.1.0') and version.parse(
                 computation_dtype = sharded_flat_param.dtype
                 # Compress to int8 before all-gather
                 sharded_flat_param = sharded_flat_param.to(torch.int8)
+                padded_unsharded_flat_param = padded_unsharded_flat_param.to(torch.int8)
+                print("FINISHED CONVERSION TO INT 8")
                 dist.all_gather_into_tensor(
                     padded_unsharded_flat_param,
                     sharded_flat_param,
@@ -805,4 +807,5 @@ if version.parse(torch.__version__) >= version.parse('2.1.0') and version.parse(
                 )
                 # Decompress back to computation dtype
                 padded_unsharded_flat_param = padded_unsharded_flat_param.to(computation_dtype)
+                print("FINISHED CONVERSION BACK FOR COMPUTATION")
             return padded_unsharded_flat_param

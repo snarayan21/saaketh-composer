@@ -63,6 +63,7 @@ def patch_fsdp_int8_allgather():
         from composer.trainer.mosaic_fsdp_utils import _all_gather_flat_param_int8
 
         # Modify flat param all gather to use int8
+        print("MODIFIED ALL GATHER FLAT PARAM")
         flat_param._all_gather_flat_param = _all_gather_flat_param_int8
         
     elif version.parse(torch.__version__) >= version.parse('2.1.1'):
