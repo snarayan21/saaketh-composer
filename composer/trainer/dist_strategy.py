@@ -229,7 +229,7 @@ def prepare_fsdp_module(
 
     patch_pytorch()
 
-    if fsdp_config['int8_all_gather']:
+    if fsdp_config.get('int8_all_gather', False):
         patch_fsdp_int8_allgather()
         del fsdp_config['int8_all_gather']
 
