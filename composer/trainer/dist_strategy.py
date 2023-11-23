@@ -17,7 +17,7 @@ from torchmetrics import Metric, MetricCollection
 from composer.core import Precision, State
 from composer.devices import Device
 from composer.trainer.meta_safe_apply import meta_safe_apply
-from composer.trainer.mosaic_fsdp import patch_pytorch
+from composer.trainer.mosaic_fsdp import patch_pytorch, patch_compressed_collectives
 from composer.trainer.mosaic_fsdp_utils import BACKWARD_PREFETCH_MAP, SHARDING_MAP, get_cpu_offload, get_mixed_precision
 from composer.utils import StringEnum, dist, ensure_tuple, using_torch_2
 
@@ -227,6 +227,12 @@ def prepare_fsdp_module(
         from torch.distributed.fsdp.flatten_params_wrapper import FlattenParamsWrapper
 
     patch_pytorch()
+
+    if fsdp_config.get('compressed_comms', False):
+        compress = lambda x: x.to(torch.int8)
+        decompress = lambda x: x.to(torch.bfloat16)
+        patch_compressed_collectives(compress_fn=compress, decompress_fn=decompress)
+        del fsdp_config['compressed_comms']
 
     set_fsdp_default(fsdp_config)
 

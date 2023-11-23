@@ -757,3 +757,44 @@ def _sharded_pre_load_state_dict_hook(
             state_dict[fqn_from_global_root] = param.to_local()
 
     _enter_unshard_params_ctx(module, fsdp_state, writeback=True)
+
+class CompressedCollective:
+    """A class to hold the result of a collective operation."""
+    # Based on TrackedCollectiveCall: https://github.com/mosaicml/tools/blob/e9ae48000ab7f4c23874b2ddffd8cea742f24bdb/motools/distributed.py#L21
+    def __init__(self,
+                 compress_fn: Callable,
+                 decompress_fn: Callable,
+                 compress_kwargs: Optional[dict] = None,
+                 decompress_kwargs: Optional[dict] = None,
+                 ):
+        self.compress_fn = compress_fn
+        self.decompress_fn = decompress_fn
+        self.compress_kwargs = compress_kwargs
+        self.decompress_kwargs = decompress_kwargs
+        self._waitable = None
+        self.compressed_tensors = []
+    
+    def call(self, func: Callable, *args, **kwargs):
+        """Call the collective operation with the given arguments."""
+        # Compress any tensors in args.
+        for i, arg in enumerate(args):
+            if isinstance(arg, torch.Tensor):
+                args[i] = self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs)
+                self.compressed_tensors.append(args[i])
+        # Compress any tensors in kwargs.
+        for k, v in kwargs.items():
+            if isinstance(v, torch.Tensor):
+                kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
+                self.compressed_tensors.append(kwargs[k])
+        # Call the collective operation. Store the returned Work object.
+        self._waitable = func(*args, **kwargs)
+        # Need to return this instance of CollectiveResult so 
+        # that we can call our custom .wait(), decompressing the result.
+        return self
+    
+    def wait(self):
+        if self._waitable is not None:
+            self._waitable.wait()
+        # Decompress any previously compressed tensors now that the collective is done.
+        for tensor in self.compressed_tensors:
+            tensor = self.decompress_fn(tensor, **self.decompress_kwargs)

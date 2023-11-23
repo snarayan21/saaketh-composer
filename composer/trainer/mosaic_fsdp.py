@@ -10,9 +10,11 @@ import torch
 from packaging import version
 from torch.distributed._shard.sharding_spec import ChunkShardingSpec
 from torch.distributed.fsdp import FullyShardedDataParallel
+from typing import Callable, Optional
+import functools
 
 from composer.trainer.mosaic_fsdp_utils import (_sharded_pre_load_state_dict_hook, build_metadata,
-                                                custom_auto_wrap_t1p13p1)
+                                                custom_auto_wrap_t1p13p1, CompressedCollective)
 
 
 def patch_pytorch():
@@ -52,3 +54,31 @@ def patch_pytorch():
 
     elif version.parse(torch.__version__) >= version.parse('2.1.1'):
         raise NotImplementedError(f'FullyShardedDataParallel is not supported for torch >= 2.2.0')
+    
+def patch_compressed_collectives(compress_fn: Callable,
+                                 decompress_fn: Callable,
+                                 compress_kwargs: Optional[dict] = None,
+                                 decompress_kwargs: Optional[dict] = None):
+    """Monkey patches specific collective operations. Currently only all gather for FSDP."""
+    if version.parse(torch.__version__) < version.parse('2.1.0'):
+        raise NotImplementedError(f'8 bit all gather not supported for torch < 2.1.0')
+    elif version.parse(torch.__version__) >= version.parse('2.1.1'):
+        raise NotImplementedError(f'8 bit all gather not supported for torch >= 2.2.0')
+    else:
+        # Monkey patch _allgather_base in ProcessGroup to use 8 bits.
+        from torch.distributed import ProcessGroup
+
+        collectives_names = ['_allgather_base']
+        for name in collectives_names:
+            collective = getattr(ProcessGroup, name)
+
+            # Compress before and decompress after using the provided functions.
+            @functools.wraps(collective)
+            def compressed_collective(*args, **kwargs):
+                comp_coll = CompressedCollective(compress_fn,
+                                        decompress_fn,
+                                        compress_kwargs,
+                                        decompress_kwargs)
+                return comp_coll.call(collective, *args, **kwargs)
+            
+            setattr(ProcessGroup, name, compressed_collective)
