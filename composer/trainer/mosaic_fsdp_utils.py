@@ -178,55 +178,56 @@ def _get_process_group(pg, process_group_cache=None):
         f'Composer is instantiating custom process groups with {ranks=} (on rank={dist.get_global_rank()}). ' +
         'This is an experimental feature.')
 
-    ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
+    #ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
+    ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
     (
         current_group,
         _subgroups,
-    ) = new_subgroups_with_tags_by_enumeration(ranks_tag_per_subgroup_list)
+    ) = distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
 
     if process_group_cache is not None:
         process_group_cache[ranks] = current_group
     return current_group
 
-def new_subgroups_with_tags_by_enumeration(
-    ranks_tag_per_subgroup_list,
-    timeout=default_pg_timeout,
-    backend=None,
-    pg_options=None,
-):
-    """
-    Modification of torch.distributed.distributed_c10d.new_subgroups_with_tags_by_enumeration
-    that allows us to set tags for each process group created. This lets us distinguish process
-    groups easily.
-    """
-    if ranks_tag_per_subgroup_list is None or len(ranks_tag_per_subgroup_list) == 0:
-        raise ValueError("The arg 'ranks_per_subgroup_list' cannot be empty")
+# def new_subgroups_with_tags_by_enumeration(
+#     ranks_tag_per_subgroup_list,
+#     timeout=default_pg_timeout,
+#     backend=None,
+#     pg_options=None,
+# ):
+#     """
+#     Modification of torch.distributed.distributed_c10d.new_subgroups_with_tags_by_enumeration
+#     that allows us to set tags for each process group created. This lets us distinguish process
+#     groups easily.
+#     """
+#     if ranks_tag_per_subgroup_list is None or len(ranks_tag_per_subgroup_list) == 0:
+#         raise ValueError("The arg 'ranks_per_subgroup_list' cannot be empty")
 
-    subgroups = []
-    cur_subgroup = None
-    # Create a mapping from rank to subgroup to check if there is any subgroup overlap.
-    rank_to_ranks_dict = {}  # type: ignore[var-annotated]
-    for ranks, tag in ranks_tag_per_subgroup_list:
-        subgroup = _new_group_with_tag(
-            ranks=ranks,
-            timeout=timeout,
-            backend=backend,
-            pg_options=pg_options,
-            pg_tag=tag,
-        )
-        subgroups.append(subgroup)
-        my_rank = get_rank()
-        for rank in ranks:
-            if rank in rank_to_ranks_dict:
-                raise ValueError(
-                    f"Rank {rank} has appeared in both subgroup {rank_to_ranks_dict[rank]} and {ranks}"
-                )
-            rank_to_ranks_dict[rank] = ranks
-            if my_rank == rank:
-                cur_subgroup = subgroup
-                logger.info("Rank %s is assigned to subgroup %s", rank, ranks)
+#     subgroups = []
+#     cur_subgroup = None
+#     # Create a mapping from rank to subgroup to check if there is any subgroup overlap.
+#     rank_to_ranks_dict = {}  # type: ignore[var-annotated]
+#     for ranks, tag in ranks_tag_per_subgroup_list:
+#         subgroup = _new_group_with_tag(
+#             ranks=ranks,
+#             timeout=timeout,
+#             backend=backend,
+#             pg_options=pg_options,
+#             pg_tag=tag,
+#         )
+#         subgroups.append(subgroup)
+#         my_rank = get_rank()
+#         for rank in ranks:
+#             if rank in rank_to_ranks_dict:
+#                 raise ValueError(
+#                     f"Rank {rank} has appeared in both subgroup {rank_to_ranks_dict[rank]} and {ranks}"
+#                 )
+#             rank_to_ranks_dict[rank] = ranks
+#             if my_rank == rank:
+#                 cur_subgroup = subgroup
+#                 logger.info("Rank %s is assigned to subgroup %s", rank, ranks)
 
-    return cur_subgroup, subgroups
+#     return cur_subgroup, subgroups
 
 
 def _set_custom_fsdp_module_kwargs(module_kwargs: Dict, process_group_cache: Dict[Tuple[int], Any]) -> Dict:
