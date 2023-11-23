@@ -146,6 +146,7 @@ def _get_process_group(pg, process_group_cache=None):
 
     # Handle str and Union[List[int], Tuple[int]] process_group cases
     if isinstance(pg, str) and pg.startswith('set'):
+        pg_tag = pg
         k = int(pg.strip('set'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
@@ -153,12 +154,14 @@ def _get_process_group(pg, process_group_cache=None):
         start = dist.get_global_rank() // k * k
         ranks = tuple(range(start, start + k))
     elif isinstance(pg, str) and pg.startswith('mod'):
+        pg_tag = pg
         k = int(pg.strip('mod'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
             raise RuntimeError(f'{world_size} must be divisible by mod ({k})')
         ranks = tuple(range(dist.get_global_rank() % k, world_size, k))
     elif isinstance(pg, (list, tuple)):
+        pg_tag = str(pg)
         ranks = tuple(pg)
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
