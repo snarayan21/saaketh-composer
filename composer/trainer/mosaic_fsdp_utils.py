@@ -778,7 +778,7 @@ class CompressedCollective:
         """Call the collective operation with the given arguments."""
         # Compress any tensors in args.
         new_args = []
-        for arg in enumerate(args):
+        for arg in args:
             if isinstance(arg, torch.Tensor):
                 print("dtype before compression:", arg.dtype)
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
