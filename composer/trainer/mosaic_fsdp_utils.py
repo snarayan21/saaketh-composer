@@ -777,17 +777,20 @@ class CompressedCollective:
     def call(self, func: Callable, *args, **kwargs):
         """Call the collective operation with the given arguments."""
         # Compress any tensors in args.
+        new_args = []
         for i, arg in enumerate(args):
             if isinstance(arg, torch.Tensor):
-                args[i] = self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs)
-                self.compressed_tensors.append(args[i])
+                new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
+                self.compressed_tensors.append(new_args[i])
+            else:
+                new_args.append(arg)
         # Compress any tensors in kwargs.
         for k, v in kwargs.items():
             if isinstance(v, torch.Tensor):
                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
-        self._waitable = func(*args, **kwargs)
+        self._waitable = func(*new_args, **kwargs)
         # Need to return this instance of CollectiveResult so 
         # that we can call our custom .wait(), decompressing the result.
         return self
