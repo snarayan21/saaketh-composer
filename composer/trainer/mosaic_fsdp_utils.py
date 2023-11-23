@@ -167,6 +167,8 @@ def _get_process_group(pg, process_group_cache=None):
         ranks = tuple(pg)
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
+    
+    pg_tag = "ptd:"+pg_tag
 
     if process_group_cache is not None and ranks in process_group_cache:
         warnings.warn(
