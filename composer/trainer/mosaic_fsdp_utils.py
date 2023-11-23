@@ -25,8 +25,7 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
                                     ShardingStrategy)
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
-from torch.distributed.constants import default_pg_timeout
-from torch.distributed.distributed_c10d import _new_group_with_tag, get_rank, _get_group_tag
+from torch.distributed.distributed_c10d import _get_group_tag
 from composer.core import Precision
 from composer.utils import dist
 
@@ -147,7 +146,6 @@ def _get_process_group(pg, process_group_cache=None):
 
     # Handle str and Union[List[int], Tuple[int]] process_group cases
     if isinstance(pg, str) and pg.startswith('set'):
-        pg_tag = pg
         k = int(pg.strip('set'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
@@ -155,14 +153,12 @@ def _get_process_group(pg, process_group_cache=None):
         start = dist.get_global_rank() // k * k
         ranks = tuple(range(start, start + k))
     elif isinstance(pg, str) and pg.startswith('mod'):
-        pg_tag = pg
         k = int(pg.strip('mod'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
             raise RuntimeError(f'{world_size} must be divisible by mod ({k})')
         ranks = tuple(range(dist.get_global_rank() % k, world_size, k))
     elif isinstance(pg, (list, tuple)):
-        pg_tag = str(pg)
         ranks = tuple(pg)
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
@@ -188,46 +184,6 @@ def _get_process_group(pg, process_group_cache=None):
     if process_group_cache is not None:
         process_group_cache[ranks] = current_group
     return current_group
-
-# def new_subgroups_with_tags_by_enumeration(
-#     ranks_tag_per_subgroup_list,
-#     timeout=default_pg_timeout,
-#     backend=None,
-#     pg_options=None,
-# ):
-#     """
-#     Modification of torch.distributed.distributed_c10d.new_subgroups_with_tags_by_enumeration
-#     that allows us to set tags for each process group created. This lets us distinguish process
-#     groups easily.
-#     """
-#     if ranks_tag_per_subgroup_list is None or len(ranks_tag_per_subgroup_list) == 0:
-#         raise ValueError("The arg 'ranks_per_subgroup_list' cannot be empty")
-
-#     subgroups = []
-#     cur_subgroup = None
-#     # Create a mapping from rank to subgroup to check if there is any subgroup overlap.
-#     rank_to_ranks_dict = {}  # type: ignore[var-annotated]
-#     for ranks, tag in ranks_tag_per_subgroup_list:
-#         subgroup = _new_group_with_tag(
-#             ranks=ranks,
-#             timeout=timeout,
-#             backend=backend,
-#             pg_options=pg_options,
-#             pg_tag=tag,
-#         )
-#         subgroups.append(subgroup)
-#         my_rank = get_rank()
-#         for rank in ranks:
-#             if rank in rank_to_ranks_dict:
-#                 raise ValueError(
-#                     f"Rank {rank} has appeared in both subgroup {rank_to_ranks_dict[rank]} and {ranks}"
-#                 )
-#             rank_to_ranks_dict[rank] = ranks
-#             if my_rank == rank:
-#                 cur_subgroup = subgroup
-#                 logger.info("Rank %s is assigned to subgroup %s", rank, ranks)
-
-#     return cur_subgroup, subgroups
 
 
 def _set_custom_fsdp_module_kwargs(module_kwargs: Dict, process_group_cache: Dict[Tuple[int], Any]) -> Dict:
