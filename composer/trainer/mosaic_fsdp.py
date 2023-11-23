@@ -10,8 +10,9 @@ import torch
 from packaging import version
 from torch.distributed._shard.sharding_spec import ChunkShardingSpec
 from torch.distributed.fsdp import FullyShardedDataParallel
-from typing import Callable, Optional
+from typing import Callable
 import functools
+from typing import Optional
 
 from composer.trainer.mosaic_fsdp_utils import (_sharded_pre_load_state_dict_hook, build_metadata,
                                                 custom_auto_wrap_t1p13p1, CompressedCollective)
@@ -65,11 +66,6 @@ def patch_compressed_collectives(compress_fn: Callable,
     elif version.parse(torch.__version__) >= version.parse('2.1.1'):
         raise NotImplementedError(f'8 bit all gather not supported for torch >= 2.2.0')
     else:
-        # Monkey patch new_subgroups_by_enumeration to assign custom tags to groups.
-        from composer.trainer.mosaic_fsdp_utils import new_subgroups_with_tags_by_enumeration
-        from torch.distributed import distributed_c10d
-        distributed_c10d.new_subgroups_by_enumeration = new_subgroups_with_tags_by_enumeration
-
         # Monkey patch _allgather_base in ProcessGroup to use 8 bits.
         from torch.distributed import ProcessGroup
 
