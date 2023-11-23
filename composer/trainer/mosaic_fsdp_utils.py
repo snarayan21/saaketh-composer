@@ -778,16 +778,20 @@ class CompressedCollective:
         """Call the collective operation with the given arguments."""
         # Compress any tensors in args.
         new_args = []
-        for i, arg in enumerate(args):
+        for arg in enumerate(args):
             if isinstance(arg, torch.Tensor):
+                print("dtype before compression:", arg.dtype)
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
-                self.compressed_tensors.append(new_args[i])
+                print("dtype after compression:", new_args[-1].dtype)
+                self.compressed_tensors.append(new_args[-1])
             else:
                 new_args.append(arg)
         # Compress any tensors in kwargs.
         for k, v in kwargs.items():
             if isinstance(v, torch.Tensor):
+                print("dtype before compression:", v.dtype)
                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
+                print("dtype before compression:", kwargs[k].dtype)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
         self._waitable = func(*new_args, **kwargs)
@@ -800,4 +804,6 @@ class CompressedCollective:
             self._waitable.wait()
         # Decompress any previously compressed tensors now that the collective is done.
         for tensor in self.compressed_tensors:
-            tensor = self.decompress_fn(tensor, **self.decompress_kwargs)
+            print("dtype before decompression:", tensor.dtype)
+            tensor = self.decompress_fn(tensor) if self.decompress_kwargs is None else self.decompress_fn(tensor, **self.decompress_kwargs)
+            print("dtype after decompression:", tensor.dtype)
