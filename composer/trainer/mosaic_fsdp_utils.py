@@ -182,12 +182,11 @@ def _get_process_group(pg, process_group_cache=None):
         'This is an experimental feature.')
     
     ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
-    print(ranks_tag_per_subgroup_list)
     ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
     (
         current_group,
         _subgroups,
-    ) = new_subgroups_with_tags_by_enumeration(ranks_per_subgroup_list)
+    ) = new_subgroups_with_tags_by_enumeration(ranks_tag_per_subgroup_list)
     #= distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
 
     if process_group_cache is not None:
