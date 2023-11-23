@@ -180,6 +180,7 @@ def _get_process_group(pg, process_group_cache=None):
         'This is an experimental feature.')
     
     ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
+    print(ranks_tag_per_subgroup_list)
     ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
     (
         current_group,
