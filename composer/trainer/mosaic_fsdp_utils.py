@@ -145,6 +145,7 @@ def _get_process_group(pg, process_group_cache=None):
         pg = f'mod{local_world_size}'
         warnings.warn(f"Converting process_group='local_rank_across_nodes' to process_group='{pg}'")
 
+    pg_tag = ''
     # Handle str and Union[List[int], Tuple[int]] process_group cases
     if isinstance(pg, str) and pg.startswith('set'):
         pg_tag = pg
@@ -177,7 +178,7 @@ def _get_process_group(pg, process_group_cache=None):
     warnings.warn(
         f'Composer is instantiating custom process groups with {ranks=} (on rank={dist.get_global_rank()}). ' +
         'This is an experimental feature.')
-
+    
     ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
     (
         current_group,
