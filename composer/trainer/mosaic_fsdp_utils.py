@@ -25,7 +25,8 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
                                     ShardingStrategy)
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
-
+from torch.distributed.constants import default_pg_timeout
+from torch.distributed.distributed_c10d import _new_group_with_tag, get_rank, _get_group_tag
 from composer.core import Precision
 from composer.utils import dist
 
@@ -146,6 +147,7 @@ def _get_process_group(pg, process_group_cache=None):
 
     # Handle str and Union[List[int], Tuple[int]] process_group cases
     if isinstance(pg, str) and pg.startswith('set'):
+        pg_tag = pg
         k = int(pg.strip('set'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
@@ -153,12 +155,14 @@ def _get_process_group(pg, process_group_cache=None):
         start = dist.get_global_rank() // k * k
         ranks = tuple(range(start, start + k))
     elif isinstance(pg, str) and pg.startswith('mod'):
+        pg_tag = pg
         k = int(pg.strip('mod'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
             raise RuntimeError(f'{world_size} must be divisible by mod ({k})')
         ranks = tuple(range(dist.get_global_rank() % k, world_size, k))
     elif isinstance(pg, (list, tuple)):
+        pg_tag = str(pg)
         ranks = tuple(pg)
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
@@ -174,15 +178,55 @@ def _get_process_group(pg, process_group_cache=None):
         f'Composer is instantiating custom process groups with {ranks=} (on rank={dist.get_global_rank()}). ' +
         'This is an experimental feature.')
 
-    ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
+    ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
     (
         current_group,
         _subgroups,
-    ) = distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
+    ) = new_subgroups_with_tags_by_enumeration(ranks_tag_per_subgroup_list)
 
     if process_group_cache is not None:
         process_group_cache[ranks] = current_group
     return current_group
+
+def new_subgroups_with_tags_by_enumeration(
+    ranks_tag_per_subgroup_list,
+    timeout=default_pg_timeout,
+    backend=None,
+    pg_options=None,
+):
+    """
+    Modification of torch.distributed.distributed_c10d.new_subgroups_with_tags_by_enumeration
+    that allows us to set tags for each process group created. This lets us distinguish process
+    groups easily.
+    """
+    if ranks_tag_per_subgroup_list is None or len(ranks_tag_per_subgroup_list) == 0:
+        raise ValueError("The arg 'ranks_per_subgroup_list' cannot be empty")
+
+    subgroups = []
+    cur_subgroup = None
+    # Create a mapping from rank to subgroup to check if there is any subgroup overlap.
+    rank_to_ranks_dict = {}  # type: ignore[var-annotated]
+    for ranks, tag in ranks_tag_per_subgroup_list:
+        subgroup = _new_group_with_tag(
+            ranks=ranks,
+            timeout=timeout,
+            backend=backend,
+            pg_options=pg_options,
+            pg_tag=tag,
+        )
+        subgroups.append(subgroup)
+        my_rank = get_rank()
+        for rank in ranks:
+            if rank in rank_to_ranks_dict:
+                raise ValueError(
+                    f"Rank {rank} has appeared in both subgroup {rank_to_ranks_dict[rank]} and {ranks}"
+                )
+            rank_to_ranks_dict[rank] = ranks
+            if my_rank == rank:
+                cur_subgroup = subgroup
+                logger.info("Rank %s is assigned to subgroup %s", rank, ranks)
+
+    return cur_subgroup, subgroups
 
 
 def _set_custom_fsdp_module_kwargs(module_kwargs: Dict, process_group_cache: Dict[Tuple[int], Any]) -> Dict:
@@ -779,25 +823,21 @@ class CompressedCollective:
         # Compress any tensors in args.
         new_args = []
         for arg in args:
+            if isinstance(arg, ProcessGroup):
+                # Check if we are calling the collective operation on a mod process group,
+                # indicating that this is the desired custom process group.
+                print("GROUP TAG:", _get_group_tag(arg))
             if isinstance(arg, torch.Tensor):
-                print("dtype before compression:", arg.dtype)
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
-                print("dtype after compression:", new_args[-1].dtype)
                 self.compressed_tensors.append(new_args[-1])
             else:
                 new_args.append(arg)
         # Compress any tensors in kwargs.
         for k, v in kwargs.items():
             if isinstance(v, torch.Tensor):
-                print("dtype before compression:", v.dtype)
                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
-                print("dtype before compression:", kwargs[k].dtype)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
-        print("new args are:")
-        print(new_args)
-        print("new kwargs are:")
-        print(kwargs)
         self._waitable = func(*new_args, **kwargs)
         # Need to return this instance of CollectiveResult so 
         # that we can call our custom .wait(), decompressing the result.
@@ -808,6 +848,4 @@ class CompressedCollective:
             self._waitable.wait()
         # Decompress any previously compressed tensors now that the collective is done.
         for tensor in self.compressed_tensors:
-            print("dtype before decompression:", tensor.dtype)
             tensor = self.decompress_fn(tensor) if self.decompress_kwargs is None else self.decompress_fn(tensor, **self.decompress_kwargs)
-            print("dtype after decompression:", tensor.dtype)
