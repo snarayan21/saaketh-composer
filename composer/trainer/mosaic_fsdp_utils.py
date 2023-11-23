@@ -794,6 +794,10 @@ class CompressedCollective:
                 print("dtype before compression:", kwargs[k].dtype)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
+        print("new args are:")
+        print(new_args)
+        print("new kwargs are:")
+        print(kwargs)
         self._waitable = func(*new_args, **kwargs)
         # Need to return this instance of CollectiveResult so 
         # that we can call our custom .wait(), decompressing the result.
