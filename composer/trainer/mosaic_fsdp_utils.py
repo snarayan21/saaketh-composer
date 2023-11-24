@@ -26,7 +26,7 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
 from torch.distributed.constants import default_pg_timeout
-from torch.distributed.distributed_c10d import _get_group_tag, _new_group_with_tag, get_rank
+from torch.distributed.distributed_c10d import _get_group_tag, _new_group_with_tag, get_rank, _get_process_group_name
 from composer.core import Precision
 from composer.utils import dist
 
@@ -186,8 +186,7 @@ def _get_process_group(pg, process_group_cache=None):
     (
         current_group,
         _subgroups,
-    ) = new_subgroups_with_tags_by_enumeration(ranks_tag_per_subgroup_list)
-    #= distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
+    ) = distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
 
     if process_group_cache is not None:
         process_group_cache[ranks] = current_group
@@ -832,6 +831,7 @@ class CompressedCollective:
                 # Check if we are calling the collective operation on a mod process group,
                 # indicating that this is the desired custom process group.
                 print("GROUP TAG:", _get_group_tag(arg))
+                print("GROUP  NAME:", _get_process_group_name(arg))
             if isinstance(arg, torch.Tensor):
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
                 self.compressed_tensors.append(new_args[-1])
