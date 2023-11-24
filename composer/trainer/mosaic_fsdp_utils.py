@@ -790,8 +790,6 @@ class CompressedCollective:
                 if not(self.is_mod_pg(arg)):
                     # Process group is not the mod group. Use original collective.
                     return func(*args, **kwargs)
-                else:
-                    print("Using compressed collective for mod process group:", get_process_group_ranks(arg))
             if isinstance(arg, torch.Tensor):
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
                 self.compressed_tensors.append(new_args[-1])
@@ -803,8 +801,6 @@ class CompressedCollective:
                 if not(self.is_mod_pg(v)):
                     # Process group is not the mod group. Use original collective.
                     return func(*args, **kwargs)
-                else:
-                    print("Using compressed collective for mod process group:", get_process_group_ranks(v))
             if isinstance(v, torch.Tensor):
                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
                 self.compressed_tensors.append(kwargs[k])
