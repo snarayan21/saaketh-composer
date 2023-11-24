@@ -26,7 +26,10 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
 from torch.distributed.constants import default_pg_timeout
-from torch.distributed.distributed_c10d import _get_group_tag, _new_group_with_tag, get_rank, _get_process_group_name
+from torch.distributed.distributed_c10d import (_get_group_tag, get_rank, _get_process_group_name,
+                                                _world, _get_default_group, Backend, 
+                                                _store_based_barrier, barrier, get_world_size,
+                                                _process_group_name, _new_process_group_helper, _is_barrier_after_init)
 from composer.core import Precision
 from composer.utils import dist
 
@@ -145,10 +148,10 @@ def _get_process_group(pg, process_group_cache=None):
         pg = f'mod{local_world_size}'
         warnings.warn(f"Converting process_group='local_rank_across_nodes' to process_group='{pg}'")
 
-    pg_tag = ''
+    pg_name = ''
     # Handle str and Union[List[int], Tuple[int]] process_group cases
     if isinstance(pg, str) and pg.startswith('set'):
-        pg_tag = pg
+        pg_name = pg
         k = int(pg.strip('set'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
@@ -156,19 +159,19 @@ def _get_process_group(pg, process_group_cache=None):
         start = dist.get_global_rank() // k * k
         ranks = tuple(range(start, start + k))
     elif isinstance(pg, str) and pg.startswith('mod'):
-        pg_tag = pg
+        pg_name = pg
         k = int(pg.strip('mod'))
         world_size = dist.get_world_size()
         if world_size % k != 0:
             raise RuntimeError(f'{world_size} must be divisible by mod ({k})')
         ranks = tuple(range(dist.get_global_rank() % k, world_size, k))
     elif isinstance(pg, (list, tuple)):
-        pg_tag = str(pg)
+        pg_name = str(pg)
         ranks = tuple(pg)
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
     
-    pg_tag = "ptd:"+pg_tag
+    pg_name = pg_name
 
     if process_group_cache is not None and ranks in process_group_cache:
         warnings.warn(
@@ -181,42 +184,41 @@ def _get_process_group(pg, process_group_cache=None):
         f'Composer is instantiating custom process groups with {ranks=} (on rank={dist.get_global_rank()}). ' +
         'This is an experimental feature.')
     
-    ranks_tag_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_tag))))
-    ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
+    ranks_name_per_subgroup_list = list(set(dist.all_gather_object((ranks, pg_name))))
     (
         current_group,
         _subgroups,
-    ) = distributed.distributed_c10d.new_subgroups_by_enumeration(ranks_per_subgroup_list)
+    ) = new_subgroups_with_names_by_enumeration(ranks_name_per_subgroup_list)
 
     if process_group_cache is not None:
         process_group_cache[ranks] = current_group
     return current_group
 
-def new_subgroups_with_tags_by_enumeration(
-    ranks_tag_per_subgroup_list,
+def new_subgroups_with_names_by_enumeration(
+    ranks_name_per_subgroup_list,
     timeout=default_pg_timeout,
     backend=None,
     pg_options=None,
 ):
     """
-    Modification of torch.distributed.distributed_c10d.new_subgroups_with_tags_by_enumeration
-    that allows us to set tags for each process group created. This lets us distinguish process
+    Modification of torch.distributed.distributed_c10d.new_subgroups_with_names_by_enumeration
+    that allows us to set names for each process group created. This lets us distinguish process
     groups easily.
     """
-    if ranks_tag_per_subgroup_list is None or len(ranks_tag_per_subgroup_list) == 0:
+    if ranks_name_per_subgroup_list is None or len(ranks_name_per_subgroup_list) == 0:
         raise ValueError("The arg 'ranks_per_subgroup_list' cannot be empty")
 
     subgroups = []
     cur_subgroup = None
     # Create a mapping from rank to subgroup to check if there is any subgroup overlap.
     rank_to_ranks_dict = {}  # type: ignore[var-annotated]
-    for ranks, tag in ranks_tag_per_subgroup_list:
-        subgroup = _new_group_with_tag(
+    for ranks, name in ranks_name_per_subgroup_list:
+        subgroup = _new_group_with_name(
             ranks=ranks,
             timeout=timeout,
             backend=backend,
             pg_options=pg_options,
-            pg_tag=tag
+            pg_name=name
         )
         subgroups.append(subgroup)
         my_rank = get_rank()
@@ -231,6 +233,110 @@ def new_subgroups_with_tags_by_enumeration(
                 logger.info("Rank %s is assigned to subgroup %s", rank, ranks)
 
     return cur_subgroup, subgroups
+
+
+def _new_group_with_name(
+    ranks=None,
+    timeout=default_pg_timeout,
+    backend=None,
+    pg_options=None,
+    pg_tag=None,
+    pg_name=None,
+    use_local_synchronization=False
+):
+    """
+    This is a variant of ``new_group`` that exposes tag creation, but we use it to set names.
+    Do not set tags manually since it is an experimental feature and is not guaranteed to work.
+    """
+    global _world
+
+    default_pg = _get_default_group()
+    default_backend, default_store = _world.pg_map[default_pg]
+    global_rank = default_pg.rank()
+    global_world_size = default_pg.size()
+
+    # Default to the same backend as the global process group
+    # if the backend is not specified.
+    if not backend:
+        backend = default_backend
+    backend = Backend(backend)
+    if use_local_synchronization:
+        # MPI backend doesn't have have a way for us to perform a partial sync
+        if backend == Backend.MPI:
+            raise RuntimeError("MPI backend doesn't support use_local_synchronization=True")
+        if ranks is not None and get_rank() not in ranks:
+            return None
+
+    # checks the input ranks
+    if ranks is not None:
+        ranks = sorted(ranks)
+        group_world_size = len(ranks)
+        if group_world_size > global_world_size:
+            raise RuntimeError(
+                "the new group's world size should be less or "
+                "equal to the world size set by "
+                "init_process_group"
+            )
+        # check ranks' sanity
+        for rank in ranks:
+            if rank < 0 or rank >= global_world_size:
+                raise RuntimeError(
+                    "The new group's rank should be within the "
+                    "the world_size set by init_process_group"
+                )
+        if global_rank in ranks:
+            group_rank = ranks.index(global_rank)
+        else:
+            group_rank = None
+    else:
+        ranks = list(range(global_world_size))
+        group_world_size = global_world_size
+        group_rank = global_rank
+
+    group_name = _process_group_name(ranks, use_hashed_name=use_local_synchronization) \
+        if pg_name is None else pg_name
+
+    pg, pg_store = _new_process_group_helper(
+        group_world_size,
+        group_rank,
+        ranks,
+        backend,
+        default_store,
+        group_name=group_name,
+        pg_options=pg_options,
+        timeout=timeout,
+        pg_tag=pg_tag
+    )
+
+    # Create the global rank to group rank mapping
+    _world.pg_group_ranks[pg] = {
+        global_rank: group_rank for group_rank, global_rank in enumerate(ranks)
+    }
+
+    if _is_barrier_after_init() == 1:
+        # barrier at the end to ensure that once we return from this method, all
+        # process groups including global variables (if any) are updated
+        # correctly on all ranks.
+        # Update 04/2023: for large-scale runs, this barrier (esp. store-based
+        # barrier) may be costly and/or unscalable. Also, in a lot of cases,
+        # these barriers may be unnecessary, as proven by a green CI after
+        # removal. An environment variable `TORCH_DIST_INIT_BARRIER` has been
+        # added which enables this barrier only when set to 1.
+        logger.info(
+            "Performing barrier after ProcessGroup initialization since "
+            "TORCH_DIST_INIT_BARRIER = 1"
+        )
+        if backend == Backend.MPI:
+            # MPI doesn't have store.
+            barrier()
+        else:
+            barrier_store = pg_store if use_local_synchronization else default_store
+            world_size = len(ranks) if use_local_synchronization else get_world_size()
+            # Use store based barrier here since barrier() used a bunch of
+            # default devices and messes up NCCL internal state.
+            _store_based_barrier(global_rank, barrier_store, group_name, world_size, timeout)
+
+    return pg
 
 
 def _set_custom_fsdp_module_kwargs(module_kwargs: Dict, process_group_cache: Dict[Tuple[int], Any]) -> Dict:
