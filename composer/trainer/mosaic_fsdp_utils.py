@@ -25,7 +25,8 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
                                     ShardingStrategy)
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
-from torch.distributed.distributed_c10d import _get_group_tag, _get_process_group_name, get_process_group_ranks
+from torch.distributed.distributed_c10d import (_get_group_tag, _get_process_group_name,
+                                                get_process_group_ranks, _get_default_group)
 from composer.core import Precision
 from composer.utils import dist
 import random, string
@@ -777,19 +778,18 @@ class CompressedCollective:
         self.decompress_kwargs = decompress_kwargs
         self._waitable = None
         self.compressed_tensors = []
+        self.world_size = dist.get_world_size()
+        self.default_pg_id = None
     
     def call(self, func: Callable, *args, **kwargs):
-        """Call the collective operation with the given arguments."""
+        """Compresses tensors before collective operations, only for mod process groups."""
         # Compress any tensors in args.
         new_args = []
         for arg in args:
             if isinstance(arg, ProcessGroup):
-                # Check if we are calling the collective operation on a mod process group,
-                # indicating that this is the desired custom process group.
-                print("GROUP TAG:", _get_group_tag(arg))
-                print("GROUP  NAME:", _get_process_group_name(arg))
-                print("group ranks:", get_process_group_ranks(arg))
-                print("Group id:", arg._id())
+                if not(self.is_mod_pg(arg)):
+                    # Process group is not the mod group. Use original collective.
+                    return func(*new_args, **kwargs)
             if isinstance(arg, torch.Tensor):
                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
                 self.compressed_tensors.append(new_args[-1])
@@ -797,6 +797,10 @@ class CompressedCollective:
                 new_args.append(arg)
         # Compress any tensors in kwargs.
         for k, v in kwargs.items():
+            if isinstance(v, ProcessGroup):
+                if not(self.is_mod_pg(v)):
+                    # Process group is not the mod group. Use original collective.
+                    return func(*new_args, **kwargs)
             if isinstance(v, torch.Tensor):
                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
                 self.compressed_tensors.append(kwargs[k])
@@ -805,6 +809,17 @@ class CompressedCollective:
         # Need to return this instance of CollectiveResult so 
         # that we can call our custom .wait(), decompressing the result.
         return self
+    
+    def is_mod_pg(self, pg):
+        """Check if the given process group is a mod process group."""
+        if self.default_pg_id is None:
+            self.default_pg_id = _get_default_group()._id()
+        if pg._id() == self.default_pg_id:
+            return False
+        pg_ranks = get_process_group_ranks(pg)
+        mod_base = self.world_size // len(pg_ranks)
+        first_rank_mod = pg_ranks[0] % mod_base
+        return all([rank % mod_base == first_rank_mod for rank in pg_ranks])
     
     def wait(self):
         if self._waitable is not None:
