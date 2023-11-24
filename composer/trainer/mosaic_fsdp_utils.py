@@ -32,6 +32,7 @@ from torch.distributed.distributed_c10d import (_get_group_tag, get_rank, _get_p
                                                 _process_group_name, _new_process_group_helper, _is_barrier_after_init)
 from composer.core import Precision
 from composer.utils import dist
+import random, string
 
 if TYPE_CHECKING:
     if version.parse(torch.__version__) >= version.parse('2.0.1') and version.parse(
@@ -55,6 +56,9 @@ BACKWARD_PREFETCH_MAP = {
 }
 
 logger = logging.getLogger(__name__)
+
+def get_random_string():
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=16))
 
 
 def _get_torch_dtype(dtype: Union[Precision, str]):
@@ -171,7 +175,7 @@ def _get_process_group(pg, process_group_cache=None):
     else:
         raise ValueError(f'Unsure how to setup process_group={pg}')
     
-    pg_name = pg_name
+    pg_name = pg_name + get_random_string()
 
     if process_group_cache is not None and ranks in process_group_cache:
         warnings.warn(
