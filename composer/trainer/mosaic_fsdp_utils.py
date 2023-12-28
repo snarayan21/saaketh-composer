@@ -25,8 +25,7 @@ from torch.distributed.fsdp import (BackwardPrefetch, CPUOffload, FullyShardedDa
                                     ShardingStrategy)
 from torch.distributed.fsdp._fsdp_extensions import _ext_pre_load_state_dict_transform
 from torch.distributed.utils import _replace_by_prefix
-from torch.distributed.distributed_c10d import (_get_group_tag, _get_process_group_name,
-                                                get_process_group_ranks, _get_default_group)
+from torch.distributed.distributed_c10d import (get_process_group_ranks, _get_default_group)
 from composer.core import Precision
 from composer.utils import dist
 import random, string
