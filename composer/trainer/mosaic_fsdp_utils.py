@@ -757,70 +757,70 @@ def _sharded_pre_load_state_dict_hook(
 
     _enter_unshard_params_ctx(module, fsdp_state, writeback=True)
 
-class CompressedCollective:
-    """A class to hold the result of a collective operation."""
-    # Based on TrackedCollectiveCall: https://github.com/mosaicml/tools/blob/e9ae48000ab7f4c23874b2ddffd8cea742f24bdb/motools/distributed.py#L21
-    def __init__(self,
-                 compress_fn: Callable,
-                 decompress_fn: Callable,
-                 compress_kwargs: Optional[dict] = None,
-                 decompress_kwargs: Optional[dict] = None,
-                 ):
-        self.compress_fn = compress_fn
-        self.decompress_fn = decompress_fn
-        self.compress_kwargs = compress_kwargs
-        self.decompress_kwargs = decompress_kwargs
-        self._waitable = None
-        self.compressed_tensors = []
-        self.world_size = dist.get_world_size()
-        self.default_pg_id = None
+# class CompressedCollective:
+#     """A class to hold the result of a collective operation."""
+#     # Based on TrackedCollectiveCall: https://github.com/mosaicml/tools/blob/e9ae48000ab7f4c23874b2ddffd8cea742f24bdb/motools/distributed.py#L21
+#     def __init__(self,
+#                  compress_fn: Callable,
+#                  decompress_fn: Callable,
+#                  compress_kwargs: Optional[dict] = None,
+#                  decompress_kwargs: Optional[dict] = None,
+#                  ):
+#         self.compress_fn = compress_fn
+#         self.decompress_fn = decompress_fn
+#         self.compress_kwargs = compress_kwargs
+#         self.decompress_kwargs = decompress_kwargs
+#         self._waitable = None
+#         self.compressed_tensors = []
+#         self.world_size = dist.get_world_size()
+#         self.default_pg_id = None
     
-    def call(self, func: Callable, *args, **kwargs):
-        """Compresses tensors before collective operations, only for mod process groups."""
-        # Compress any tensors in args.
-        new_args = []
-        for arg in args:
-            # if isinstance(arg, ProcessGroup):
-            #     if not(self.is_mod_pg(arg)):
-            #         # Process group is not the mod group. Use original collective.
-            #         return func(*args, **kwargs)
-            if isinstance(arg, torch.Tensor):
-                new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
-                self.compressed_tensors.append(new_args[-1])
-            else:
-                new_args.append(arg)
-        # Compress any tensors in kwargs.
-        for k, v in kwargs.items():
-            # if isinstance(v, ProcessGroup):
-            #     if not(self.is_mod_pg(v)):
-            #         # Process group is not the mod group. Use original collective.
-            #         return func(*args, **kwargs)
-            if isinstance(v, torch.Tensor):
-                kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
-                self.compressed_tensors.append(kwargs[k])
-        # Call the collective operation. Store the returned Work object.
-        self._waitable = func(*new_args, **kwargs)
-        # Need to return this instance of CollectiveResult so 
-        # that we can call our custom .wait(), decompressing the result.
-        return self
+#     def call(self, func: Callable, *args, **kwargs):
+#         """Compresses tensors before collective operations, only for mod process groups."""
+#         # Compress any tensors in args.
+#         new_args = []
+#         for arg in args:
+#             # if isinstance(arg, ProcessGroup):
+#             #     if not(self.is_mod_pg(arg)):
+#             #         # Process group is not the mod group. Use original collective.
+#             #         return func(*args, **kwargs)
+#             if isinstance(arg, torch.Tensor):
+#                 new_args.append(self.compress_fn(arg) if self.compress_kwargs is None else self.compress_fn(arg, **self.compress_kwargs))
+#                 self.compressed_tensors.append(new_args[-1])
+#             else:
+#                 new_args.append(arg)
+#         # Compress any tensors in kwargs.
+#         for k, v in kwargs.items():
+#             # if isinstance(v, ProcessGroup):
+#             #     if not(self.is_mod_pg(v)):
+#             #         # Process group is not the mod group. Use original collective.
+#             #         return func(*args, **kwargs)
+#             if isinstance(v, torch.Tensor):
+#                 kwargs[k] = self.compress_fn(v) if self.compress_kwargs is None else self.compress_fn(v, **self.compress_kwargs)
+#                 self.compressed_tensors.append(kwargs[k])
+#         # Call the collective operation. Store the returned Work object.
+#         self._waitable = func(*new_args, **kwargs)
+#         # Need to return this instance of CollectiveResult so 
+#         # that we can call our custom .wait(), decompressing the result.
+#         return self
     
-    def is_mod_pg(self, pg):
-        """Check if the given process group is a mod process group."""
-        if self.default_pg_id is None:
-            self.default_pg_id = _get_default_group()._id()
-        if pg._id() == self.default_pg_id:
-            return False
-        pg_ranks = get_process_group_ranks(pg)
-        mod_base = self.world_size // len(pg_ranks)
-        first_rank_mod = pg_ranks[0] % mod_base
-        return all([rank % mod_base == first_rank_mod for rank in pg_ranks])
+#     def is_mod_pg(self, pg):
+#         """Check if the given process group is a mod process group."""
+#         if self.default_pg_id is None:
+#             self.default_pg_id = _get_default_group()._id()
+#         if pg._id() == self.default_pg_id:
+#             return False
+#         pg_ranks = get_process_group_ranks(pg)
+#         mod_base = self.world_size // len(pg_ranks)
+#         first_rank_mod = pg_ranks[0] % mod_base
+#         return all([rank % mod_base == first_rank_mod for rank in pg_ranks])
     
-    def wait(self):
-        if self._waitable is not None:
-            self._waitable.wait()
-        # Decompress any previously compressed tensors now that the collective is done.
-        for tensor in self.compressed_tensors:
-            tensor = self.decompress_fn(tensor) if self.decompress_kwargs is None else self.decompress_fn(tensor, **self.decompress_kwargs)
+#     def wait(self):
+#         if self._waitable is not None:
+#             self._waitable.wait()
+#         # Decompress any previously compressed tensors now that the collective is done.
+#         for tensor in self.compressed_tensors:
+#             tensor = self.decompress_fn(tensor) if self.decompress_kwargs is None else self.decompress_fn(tensor, **self.decompress_kwargs)
     
 # class CompressedCollective:
 #     """A class to hold the result of a collective operation."""
@@ -914,6 +914,75 @@ class CompressedCollective:
 #                 tensor
 #             ) if self.decompress_kwargs is None else self.decompress_fn(
 #                 tensor, **self.decompress_kwargs)
+    
+class CompressedCollective:
+    """A class to hold the result of a collective operation."""
+
+    # Based on TrackedCollectiveCall: https://github.com/mosaicml/tools/blob/e9ae48000ab7f4c23874b2ddffd8cea742f24bdb/motools/distributed.py#L21
+    def __init__(
+        self,
+        compress_fn: Callable,
+        decompress_fn: Callable,
+        compress_kwargs: Optional[dict] = None,
+        decompress_kwargs: Optional[dict] = None,
+    ):
+        self.compressed_dtype = torch.uint8
+        self.compressed_dtype_bytes = torch.iinfo(self.compressed_dtype).bits // 8
+        self.compress_fn = compress_fn
+        self.decompress_fn = decompress_fn
+        self.compress_kwargs = compress_kwargs
+        self.decompress_kwargs = decompress_kwargs
+        self._waitable = None
+        self.compressed_tensors = []
+
+    def call(self, func: Callable, *args: tuple, **kwargs: dict):
+        """Compresses tensors before collective operations."""
+        # Compress any tensors in args.
+        new_args = []
+        for idx, arg in enumerate(args):
+            if isinstance(arg, torch.Tensor) \
+                and torch.is_floating_point(arg) \
+                and arg.element_size() > 1:
+                # Compress only if Tensor is has floats of more than 1 byte per element, and is
+                # the input tensor to the collective. Otherwise, just cast to self.compressed_dtype
+                if idx != 2:
+                    new_args.append(
+                        self.compress_fn(arg) if self.compress_kwargs is None else
+                        self.compress_fn(arg, **self.compress_kwargs))
+                else:
+                    new_args.append(arg.to(self.compressed_dtype))
+                if idx == 1:
+                    # We assume that the output tensor is the second argument in the collective.
+                    # This is true for _allgather_base and alltoall_base, along with other
+                    # ProcessGroup functions, but may not be true for all collectives!
+                    self.compressed_tensors.append(new_args[-1])
+            else:
+                new_args.append(arg)
+        # Compress any tensors in kwargs. There most likely will not be any, given that we almost
+        # never directly call collectives using ProcessGroup itself.
+        for k, v in kwargs.items():
+            if isinstance(v, torch.Tensor) \
+                and torch.is_floating_point(arg) \
+                and arg.element_size() > 1:
+                kwargs[k] = self.compress_fn(
+                    v) if self.compress_kwargs is None else self.compress_fn(
+                        v, **self.compress_kwargs)
+                self.compressed_tensors.append(kwargs[k])
+        # Call the collective operation. Store the returned Work object.
+        self._waitable = func(*new_args, **kwargs)
+        # Need to return this instance of CollectiveResult so
+        # that we can call our custom .wait(), decompressing the result.
+        return self
+
+    def wait(self):
+        if self._waitable is not None:
+            self._waitable.wait()
+        # Decompress any previously compressed tensors now that the collective is done.
+        for tensor in self.compressed_tensors:
+            tensor = self.decompress_fn(
+                tensor
+            ) if self.decompress_kwargs is None else self.decompress_fn(
+                tensor, **self.decompress_kwargs)
 
 def fsdp_state_has_default_pg(state: '_FSDPState') -> bool:
     """Indicates whether FlatParamHandle has the default process group.
