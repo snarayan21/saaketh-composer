@@ -900,10 +900,6 @@ class CompressedCollective:
                         v, **self.compress_kwargs)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
-        for i, arg in enumerate(new_args):
-            print(f'arg {i} -- type is: {type(arg)}')
-            if isinstance(arg, torch.Tensor):
-                print(f'arg {i} is a tensor. the torch dtype is: {arg.dtype}')
         self._waitable = func(*new_args, **kwargs)
         # Need to return this instance of CollectiveResult so
         # that we can call our custom .wait(), decompressing the result.

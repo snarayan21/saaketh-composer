@@ -230,7 +230,7 @@ def prepare_fsdp_module(
     patch_pytorch()
 
     if fsdp_config.get('compressed_comms', False):
-        compress = lambda x: x.to(torch.int8)
+        compress = lambda x: x.to(torch.uint8)
         decompress = lambda x: x.to(torch.bfloat16)
         patch_compressed_collectives(compress_fn=compress, decompress_fn=decompress)
         del fsdp_config['compressed_comms']
