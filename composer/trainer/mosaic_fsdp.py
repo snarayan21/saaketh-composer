@@ -125,7 +125,7 @@ def patch_compressed_collectives(compress_fn: Callable,
 
         warnings.warn("Using 8 bit communication is experimental!")
 
-        collectives_names = ['_allgather_base', 'alltoall_base']
+        collectives_names = ['_allgather_base']
         for name in collectives_names:
             collective = getattr(ProcessGroup, name)
 
