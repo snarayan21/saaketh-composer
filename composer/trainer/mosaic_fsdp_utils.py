@@ -170,16 +170,7 @@ def _get_process_group(pg, process_group_cache=None):
     if process_group_cache is not None and ranks in process_group_cache:
         log.info(f'Using cached progress group with {ranks=} on rank={dist.get_global_rank()}.')
         return process_group_cache[ranks]
-
-<<<<<<< HEAD
-    warnings.warn(
-        f'Composer is instantiating custom process groups with {ranks=} (on rank={dist.get_global_rank()}). ' +
-        'This is an experimental feature.')
     
-=======
-    log.info(f'Instantiating custom process groups with {ranks=} on rank={dist.get_global_rank()}.')
-
->>>>>>> 4af5076b84e0df2dcd09100130ee422cf8355828
     ranks_per_subgroup_list = list(set(dist.all_gather_object(ranks)))
     (
         current_group,
@@ -766,7 +757,6 @@ def _sharded_pre_load_state_dict_hook(
 
     _enter_unshard_params_ctx(module, fsdp_state, writeback=True)
 
-<<<<<<< HEAD
 class CompressedCollective:
     """A class to hold the result of a collective operation."""
     # Based on TrackedCollectiveCall: https://github.com/mosaicml/tools/blob/e9ae48000ab7f4c23874b2ddffd8cea742f24bdb/motools/distributed.py#L21
@@ -831,7 +821,6 @@ class CompressedCollective:
         # Decompress any previously compressed tensors now that the collective is done.
         for tensor in self.compressed_tensors:
             tensor = self.decompress_fn(tensor) if self.decompress_kwargs is None else self.decompress_fn(tensor, **self.decompress_kwargs)
-=======
 
 def fsdp_state_has_default_pg(state: '_FSDPState') -> bool:
     """Indicates whether FlatParamHandle has the default process group.
@@ -1036,4 +1025,3 @@ def _share_state_and_init_handle_attrs_t2p2(
     for attr_name, attr_values in attr_name_to_values.items():
         if len(attr_values) != 1:
             raise ValueError(f'Expects one homogeneous value for {attr_name} but got {attr_values}')
->>>>>>> 4af5076b84e0df2dcd09100130ee422cf8355828
