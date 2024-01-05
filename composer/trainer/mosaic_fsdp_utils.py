@@ -882,8 +882,6 @@ class CompressedCollective:
                             f'Compressed collectives not implemented for output tensors with more \
                                 than 2 dimensions.'
                         )
-                        
-                    
                 if idx == 1:
                     # We assume that the output tensor is the second argument in the collective.
                     # This is true for _allgather_base and alltoall_base, along with other
@@ -902,6 +900,10 @@ class CompressedCollective:
                         v, **self.compress_kwargs)
                 self.compressed_tensors.append(kwargs[k])
         # Call the collective operation. Store the returned Work object.
+        for i, arg in enumerate(new_args):
+            print(f'arg {i} -- type is: {type(arg)}')
+            if isinstance(arg, torch.Tensor):
+                print(f'arg {i} is a tensor. the torch dtype is: {arg.dtype}')
         self._waitable = func(*new_args, **kwargs)
         # Need to return this instance of CollectiveResult so
         # that we can call our custom .wait(), decompressing the result.
