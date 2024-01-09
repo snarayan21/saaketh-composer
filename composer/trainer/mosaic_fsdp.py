@@ -69,7 +69,7 @@ def patch_pytorch():
     elif version.parse(torch.__version__) < version.parse('2.2.1'):
         # Monkey patch for torch < 2.2.1 ie torch == 2.2.0
 
-        # Better overlap communication and computation
+        # Better overlap communication and computation (this is disabled in this branch.)
         from torch.distributed.fsdp import _runtime_utils
 
         from composer.trainer.mosaic_fsdp_utils import _share_state_and_init_handle_attrs_t2p2, init_fn_t2p2p0

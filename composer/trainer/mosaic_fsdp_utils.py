@@ -1271,20 +1271,12 @@ def _share_state_and_init_handle_attrs_t2p2(
             hasattr(param, '_in_backward_optimizers') for param in flat_param._params)
         if handle._has_optim_in_backward:
             torch._C._log_api_usage_once('fsdp.optimizer_in_backward')
-
-    # Patching so that _FSDPStates with different process groups have separate unshard streams.
-    # Keep track of any new unshard streams we may have to add for specific process groups.
-    fsdp_pg_unshard_streams = {}
-    try:
-        unshard_priority = root_state._unshard_stream.priority
-    except AttributeError:
-        # Use the default priority of 0 if the stream has no assigned priority.
-        unshard_priority = 0
+    
     for fsdp_state in root_state._all_fsdp_states:
         for attr_name in HOMOGENEOUS_ATTR_NAMES:
             _p_assert(
                 hasattr(fsdp_state, attr_name),
-                f'FSDP state missing attribute {attr_name}',
+                f"FSDP state missing attribute {attr_name}",
             )
             attr_name_to_values[attr_name].add(getattr(fsdp_state, attr_name))
         if fsdp_state is root_state:
@@ -1295,26 +1287,10 @@ def _share_state_and_init_handle_attrs_t2p2(
         _p_assert(
             fsdp_state._is_root is None or not fsdp_state._is_root,
             "Non-root FSDP instance's `_is_root` should not have been "
-            'set yet or should have been set to `False`',
+            "set yet or should have been set to `False`",
         )
         fsdp_state._is_root = False
-
-        # Take care of any new unshard streams we have to create for non-default process groups.
-        if fsdp_state_has_default_pg(fsdp_state):
-            # If using default process group, unshard stream is the same as root fsdp instance.
-            fsdp_state._unshard_stream = root_state._unshard_stream
-        else:
-            # Otherwise, unshard stream is separate.
-            state_pg_ranks = fsdp_state_pg_ranks(fsdp_state)
-            if state_pg_ranks in fsdp_pg_unshard_streams:
-                # We have created the unshard stream for this process group already. Use it.
-                fsdp_state._unshard_stream = fsdp_pg_unshard_streams[state_pg_ranks]
-            else:
-                # We don't have an unshard stream for this process group yet. Make it.
-                fsdp_state._unshard_stream = fsdp_state._device_handle.Stream(priority=unshard_priority)
-                fsdp_pg_unshard_streams[state_pg_ranks] = fsdp_state._unshard_stream
-
-        # All other stream assignments stay common across all of FSDP.
+        fsdp_state._unshard_stream = root_state._unshard_stream
         fsdp_state._post_backward_stream = root_state._post_backward_stream
         fsdp_state._pre_unshard_stream = root_state._pre_unshard_stream
         fsdp_state._all_reduce_stream = root_state._all_reduce_stream
@@ -1324,13 +1300,8 @@ def _share_state_and_init_handle_attrs_t2p2(
         handle = fsdp_state._handle
         if handle:
             handle.init_flat_param_attributes()
-    # Ensure that all unshard streams wait on the default computation stream
-    for pg_unshard_stream in fsdp_pg_unshard_streams.values():
-        _wait_for_computation_stream(
-            root_state._device_handle.current_stream(),
-            pg_unshard_stream,
-            root_state._pre_unshard_stream,
-        )
     for attr_name, attr_values in attr_name_to_values.items():
         if len(attr_values) != 1:
-            raise ValueError(f'Expects one homogeneous value for {attr_name} but got {attr_values}')
+            raise ValueError(
+                f"Expects one homogeneous value for {attr_name} but got {attr_values}"
+            )
