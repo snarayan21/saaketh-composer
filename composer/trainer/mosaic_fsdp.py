@@ -56,13 +56,13 @@ def patch_pytorch():
 
         # Better overlap communication and computation
         from composer.trainer.mosaic_fsdp_utils import (_root_pre_forward, _share_state_and_init_handle_attrs_t2p1,
-                                                        _wait_for_computation_stream, forward, _pre_backward_hook_t2p2,
+                                                        _wait_for_computation_stream, forward, _pre_backward_hook_t2p1,
                                                         _new_fsdp_state_init)
         from torch.distributed.fsdp._common_utils import _FSDPState
         _runtime_utils._share_state_and_init_handle_attrs = _share_state_and_init_handle_attrs_t2p1
         _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
         _runtime_utils._root_pre_forward = _root_pre_forward
-        _runtime_utils._pre_backward_hook = _pre_backward_hook_t2p2
+        _runtime_utils._pre_backward_hook = _pre_backward_hook_t2p1
         FullyShardedDataParallel.forward = forward
         _FSDPState.__init__ = _new_fsdp_state_init
 
