@@ -1523,14 +1523,14 @@ def _pre_forward_unshard_t2p2(
 ) -> None:
     """Unshards parameters in the pre-forward."""
 
-    from torch.distributed.fsdp._runtime_utils import _prefetch_handle, _PrefetchMode
+    from torch.distributed.fsdp._runtime_utils import _prefetch_handle, _PrefetchMode, _unshard
 
     if not handle:
         return
     # If the handles have been prefetched, then there is no need to call
     # `_unshard()` again
     if not handle._prefetched:
-        _unshard_t2p2(state, handle, state._unshard_stream, state._pre_unshard_stream)
+        _unshard(state, handle, state._unshard_stream, state._pre_unshard_stream)
     handle._needs_pre_forward_unshard = False
     # Don't wait during trace
     if not torch.distributed._functional_collectives.is_torchdynamo_compiling():
