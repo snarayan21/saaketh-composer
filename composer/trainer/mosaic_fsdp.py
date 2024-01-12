@@ -86,8 +86,8 @@ def patch_pytorch():
         _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
         _runtime_utils._root_pre_forward = _root_pre_forward
         _runtime_utils._unshard = _unshard_t2p2
-        _runtime_utils._pre_forward_unshard = _pre_forward_unshard_t2p2
-        _runtime_utils._pre_backward_hook = _pre_backward_hook_t2p2
+        #_runtime_utils._pre_forward_unshard = _pre_forward_unshard_t2p2
+        #_runtime_utils._pre_backward_hook = _pre_backward_hook_t2p2
         FullyShardedDataParallel.forward = forward
         _FSDPState.__init__ = _new_fsdp_state_init
 
