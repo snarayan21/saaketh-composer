@@ -13,7 +13,7 @@ import functools
 import logging
 import math
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Set, Tuple, Union, cast, no_type_check
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Set, Tuple, Union, Generator, List, cast, no_type_check
 
 import torch
 import torch.distributed._shard.sharded_tensor.metadata as sharded_tensor_meta
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     if version.parse(torch.__version__) >= version.parse('2.0.1') and version.parse(
             torch.__version__) < version.parse('2.2.0'):
         from torch.distributed.fsdp._common_utils import _FSDPState
+        from torch.distributed.fsdp._flat_param import FlatParamHandle
 
 log = logging.getLogger(__name__)
 
@@ -1118,10 +1119,7 @@ def _wait_for_computation_stream(
     if torch.distributed._functional_collectives.is_torchdynamo_compiling():
         return
     # Ensure all unshard streams wait for the computation stream.
-    unshard_streams = set()
-    for fsdp_state in root_state._all_fsdp_states:
-        unshard_streams.add(fsdp_state._unshard_stream)
-    for unshard_stream in unshard_streams:
+    for unshard_stream in root_state._all_unshard_streams.values():
         unshard_stream.wait_stream(computation_stream)  # type: ignore[attr-defined]
     # Having the pre-all-gather stream wait for the current stream even if we
     # do not leverage the pre-all-gather stream is tolerable since this only
@@ -1359,7 +1357,7 @@ def _share_state_and_init_handle_attrs_t2p2(
     handle = root_state._handle
     if handle:
         handle.init_flat_param_attributes()
-    # _validate_and_get_hybrid_shard_state(root_module)
+    _validate_and_get_hybrid_shard_state(root_module)
     attr_name_to_values: Dict[str, Set[Any]] = {}
     for attr_name in HOMOGENEOUS_ATTR_NAMES:
         attr_name_to_values[attr_name] = set()
@@ -1367,14 +1365,15 @@ def _share_state_and_init_handle_attrs_t2p2(
     # Update _has_optim_in_backward for each handle.
     for handle in root_state._all_handles:
         flat_param = handle.flat_param
-        if hasattr(flat_param, '_in_backward_optimizers'):
-            raise RuntimeError('FSDP optimizer in backward only supported with use_orig_params=True!')
+        if hasattr(flat_param, "_in_backward_optimizers"):
+            raise RuntimeError(
+                "FSDP optimizer in backward only supported with use_orig_params=True!"
+            )
         handle._has_optim_in_backward = flat_param._params is not None and any(
-            hasattr(param, '_in_backward_optimizers') for param in flat_param._params)
+            hasattr(param, "_in_backward_optimizers") for param in flat_param._params
+        )
         if handle._has_optim_in_backward:
-            torch._C._log_api_usage_once('fsdp.optimizer_in_backward')
-
-    # Patching so that _FSDPStates with different process groups have separate unshard streams.
+            torch._C._log_api_usage_once("fsdp.optimizer_in_backward")
     # Keep track of any new unshard streams we may have to add for specific process groups.
     fsdp_pg_unshard_streams = {}
     try:
@@ -1386,10 +1385,12 @@ def _share_state_and_init_handle_attrs_t2p2(
         for attr_name in HOMOGENEOUS_ATTR_NAMES:
             _p_assert(
                 hasattr(fsdp_state, attr_name),
-                f'FSDP state missing attribute {attr_name}',
+                f"FSDP state missing attribute {attr_name}",
             )
             attr_name_to_values[attr_name].add(getattr(fsdp_state, attr_name))
         if fsdp_state is root_state:
+            root_state_pg_ranks = tuple(range(dist.get_world_size()))
+            fsdp_pg_unshard_streams[root_state_pg_ranks] = root_state._unshard_stream
             continue
         # Relax the assert for non-root FSDP instances in case the nested
         # initialized module is wrapped again in FSDP later (e.g. after
@@ -1397,7 +1398,7 @@ def _share_state_and_init_handle_attrs_t2p2(
         _p_assert(
             fsdp_state._is_root is None or not fsdp_state._is_root,
             "Non-root FSDP instance's `_is_root` should not have been "
-            'set yet or should have been set to `False`',
+            "set yet or should have been set to `False`",
         )
         fsdp_state._is_root = False
 
@@ -1413,7 +1414,9 @@ def _share_state_and_init_handle_attrs_t2p2(
                 fsdp_state._unshard_stream = fsdp_pg_unshard_streams[state_pg_ranks]
             else:
                 # We don't have an unshard stream for this process group yet. Make it.
-                fsdp_state._unshard_stream = fsdp_state._device_handle.Stream(priority=unshard_priority)
+                fsdp_state._unshard_stream = fsdp_state._device_handle.Stream(
+                    priority=unshard_priority
+                )
                 fsdp_pg_unshard_streams[state_pg_ranks] = fsdp_state._unshard_stream
 
         # All other stream assignments stay common across all of FSDP.
@@ -1426,6 +1429,188 @@ def _share_state_and_init_handle_attrs_t2p2(
         handle = fsdp_state._handle
         if handle:
             handle.init_flat_param_attributes()
+    for fsdp_state in root_state._all_fsdp_states:
+        fsdp_state._all_unshard_streams = fsdp_pg_unshard_streams
     for attr_name, attr_values in attr_name_to_values.items():
         if len(attr_values) != 1:
-            raise ValueError(f'Expects one homogeneous value for {attr_name} but got {attr_values}')
+            raise ValueError(
+                f"Expects one homogeneous value for {attr_name} but got {attr_values}"
+            )
+
+
+def _new_fsdp_state_init(self) -> None:
+
+    from torch.distributed.fsdp._common_utils import _FSDPState, TrainingState, _FSDPDeviceHandle, _UninitializedDeviceHandle
+    from torch.distributed.fsdp.api import StateDictType, StateDictConfig, OptimStateDictConfig, FullStateDictConfig, FullOptimStateDictConfig
+    import torch.distributed.fsdp._flat_param as flat_param_file
+    import torch.distributed as dist
+    from torch.distributed.fsdp._fsdp_extensions import FSDPExtensions
+    # TODO: Move all the attributes to this class to enable typing for
+    # FSDP/fully_shard.
+    self._ignored_modules: Set[nn.Module] = set()
+    self._ignored_params: Set[nn.Parameter] = set()
+    # Buffer names are cleaned (without wrapper prefixes)
+    self._ignored_buffer_names: Set[str] = set()
+    self.process_group: Optional[dist.ProcessGroup] = None
+    self.rank: int = -1
+    self.world_size: int = -1
+    self._device_mesh: Optional[DeviceMesh] = None
+    self.sharding_strategy = ShardingStrategy.FULL_SHARD
+    self._use_orig_params: bool = False
+    self.training_state = TrainingState.IDLE
+    self._unshard_params_ctx: Dict[nn.Module, Generator] = {}
+    self._state_dict_type: StateDictType = StateDictType.FULL_STATE_DICT
+    self._state_dict_config: StateDictConfig = FullStateDictConfig()
+    self._optim_state_dict_config: OptimStateDictConfig = FullOptimStateDictConfig()
+    self._is_root: Optional[bool] = None
+    self._handle: Optional[flat_param_file.FlatParamHandle] = None
+    self._fully_sharded_module_to_handle: Dict[
+        nn.Module, Optional[flat_param_file.FlatParamHandle]
+    ] = {}
+    self.compute_device: Optional[torch.device] = None
+    self._gradient_predivide_factor: int = 0
+    self._gradient_postdivide_factor: int = 0
+    self._comm_hook: Optional[Callable] = None
+    self._comm_hook_state: Optional[Any] = None
+    # Abstract device handle for fsdp compute device. For now,
+    # the compute device must implement cuda semantics used by fsdp
+    self._device_handle: _FSDPDeviceHandle = _UninitializedDeviceHandle()
+    # All following attributes should only be used for root states:
+    # Save these static lists to avoid the repeated tree traversals
+    self._all_fsdp_states: List[_FSDPState] = []
+    self._all_unshard_streams: Dict[torch.Stream] = {}
+    self._all_handles: List[flat_param_file.FlatParamHandle] = []
+    self._fsdp_extension: Optional[FSDPExtensions] = None
+
+@no_type_check
+def _unshard_t2p2(
+    state: '_FSDPState',
+    handle: 'FlatParamHandle',
+    unshard_stream: torch.Stream,
+    pre_unshard_stream: torch.Stream,
+) -> None:
+    """
+    Unshards the handles in ``handles``. If the handles are in
+    :meth:`summon_full_params` and are using mixed precision, then they are
+    forced to full precision.
+
+    Postcondition: handle's ``FlatParameter`` 's data is the padded
+    unsharded flat parameter on the compute device.
+    """
+    if not handle:
+        return
+    with state._device_handle.stream(pre_unshard_stream):
+        ran_pre_unshard = handle.pre_unshard()
+    if ran_pre_unshard:
+        for unshard_stream in state._all_unshard_streams.values():
+            unshard_stream.wait_stream(pre_unshard_stream)
+    if state.limit_all_gathers:
+        event = state._free_event_queue.dequeue_if_needed()
+        if event:
+            with torch.profiler.record_function(
+                "FullyShardedDataParallel.rate_limiter"
+            ):
+                event.synchronize()
+    with state._device_handle.stream(unshard_stream):
+        handle.unshard()
+        handle.post_unshard()
+
+
+@no_type_check
+def _pre_forward_unshard_t2p2(
+    state: '_FSDPState',
+    handle: Optional['FlatParamHandle'],
+) -> None:
+    """Unshards parameters in the pre-forward."""
+
+    from torch.distributed.fsdp._runtime_utils import _prefetch_handle, _PrefetchMode
+
+    if not handle:
+        return
+    # If the handles have been prefetched, then there is no need to call
+    # `_unshard()` again
+    if not handle._prefetched:
+        _unshard_t2p2(state, handle, state._unshard_stream, state._pre_unshard_stream)
+    handle._needs_pre_forward_unshard = False
+    # Don't wait during trace
+    if not torch.distributed._functional_collectives.is_torchdynamo_compiling():
+        for unshard_stream in state._all_unshard_streams.values():
+            state._device_handle.current_stream().wait_stream(unshard_stream)
+    with torch.profiler.record_function(
+        "FullyShardedDataParallel._pre_forward_prefetch"
+    ):
+        _prefetch_handle(state, handle, _PrefetchMode.FORWARD)
+
+@no_type_check
+def _pre_backward_hook_t2p2(
+    state: '_FSDPState',
+    module: nn.Module,
+    handle: 'FlatParamHandle',
+    grad,
+    *unused: Any,
+) -> Any:
+    """
+    Prepares ``_handle`` 's ``FlatParameter`` s for gradient computation.
+
+    Args:
+        module (nn.Module): Fully sharded module (see [Note: Fully Sharded
+            Module]).
+    """
+    from torch.distributed.fsdp._runtime_utils import (_register_post_backward_final_callback, _reset_flat_param_grad_info_if_needed,
+                                                       _prefetch_handle, _PrefetchMode)
+    from torch.distributed.fsdp._common_utils import TrainingState, _is_composable, _assert_in_training_states, HandleTrainingState
+    # Only run the pre-backward hook once per group of handles involved in the
+    # same module forward computation
+    if (
+        handle
+        and hasattr(handle, "_ran_pre_backward_hook")
+        and handle._ran_pre_backward_hook
+    ):
+        log.debug("%s %s", id(state), "Not Running pre backward! Already Ran!")
+        return grad
+
+    with torch.profiler.record_function("FullyShardedDataParallel._pre_backward_hook"):
+        # Queue the post-backward callback once for the root FSDP instance to
+        # attach it to the outermost backward graph task so that it is called
+        # after all backward calls complete
+        if state._is_root and not state._post_backward_callback_queued:
+            _register_post_backward_final_callback(state, module)
+            _reset_flat_param_grad_info_if_needed(state._all_handles)
+        elif handle:
+            allowed_states = [TrainingState.IDLE]
+            if _is_composable(state):
+                allowed_states.append(TrainingState.FORWARD_BACKWARD)
+            _assert_in_training_states(state, allowed_states)
+        state.training_state = TrainingState.FORWARD_BACKWARD
+        # Queueing the post-backward callback is the only logic that is not
+        # per-handle in the pre-backward hook, so we can return early here if
+        # there are no handles.
+        if not handle:
+            return grad
+        handle._training_state = HandleTrainingState.BACKWARD_PRE
+
+        if handle._needs_pre_backward_unshard:
+            # If the handles have been prefetched, then there is no need to
+            # call `_unshard()` again
+            if not handle._prefetched:
+                _unshard_t2p2(
+                    state,
+                    handle,
+                    state._unshard_stream,
+                    state._pre_unshard_stream,
+                )
+            # Don't wait during trace
+            if not torch.distributed._functional_collectives.is_torchdynamo_compiling():
+                for unshard_stream in state._all_unshard_streams.values():
+                    state._device_handle.current_stream().wait_stream(unshard_stream)
+
+        # Set this to `False` to ensure that a mistargeted prefetch does not
+        # actually unshard these handles
+        handle._needs_pre_backward_unshard = False
+        with torch.profiler.record_function(
+            "FullyShardedDataParallel._pre_backward_prefetch"
+        ):
+            _prefetch_handle(state, handle, _PrefetchMode.BACKWARD)
+        handle.prepare_gradient_for_backward()
+        handle._ran_pre_backward_hook = True
+        return grad
