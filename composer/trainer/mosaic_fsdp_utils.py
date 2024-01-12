@@ -1334,6 +1334,8 @@ def _share_state_and_init_handle_attrs_t2p1(
         handle = fsdp_state._handle
         if handle:
             handle.init_flat_param_attributes()
+    for fsdp_state in root_state._all_fsdp_states:
+        fsdp_state._all_unshard_streams = fsdp_pg_unshard_streams
     for attr_name, attr_values in attr_name_to_values.items():
         if len(attr_values) != 1:
             raise ValueError(f'Expects one homogeneous value for {attr_name} but got {attr_values}')
