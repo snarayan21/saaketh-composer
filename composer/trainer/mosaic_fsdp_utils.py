@@ -1557,7 +1557,7 @@ def _pre_backward_hook_t2p2(
             Module]).
     """
     from torch.distributed.fsdp._runtime_utils import (_register_post_backward_final_callback, _reset_flat_param_grad_info_if_needed,
-                                                       _prefetch_handle, _PrefetchMode)
+                                                       _prefetch_handle, _PrefetchMode, _unshard)
     from torch.distributed.fsdp._common_utils import TrainingState, _is_composable, _assert_in_training_states, HandleTrainingState
     # Only run the pre-backward hook once per group of handles involved in the
     # same module forward computation
@@ -1593,7 +1593,7 @@ def _pre_backward_hook_t2p2(
             # If the handles have been prefetched, then there is no need to
             # call `_unshard()` again
             if not handle._prefetched:
-                _unshard_t2p2(
+                _unshard(
                     state,
                     handle,
                     state._unshard_stream,
