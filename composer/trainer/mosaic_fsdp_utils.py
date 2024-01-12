@@ -1525,14 +1525,14 @@ def _pre_forward_unshard_t2p2(
 ) -> None:
     """Unshards parameters in the pre-forward."""
 
-    from torch.distributed.fsdp._runtime_utils import _prefetch_handle, _PrefetchMode
+    from torch.distributed.fsdp._runtime_utils import _prefetch_handle, _PrefetchMode, _unshard
 
     if not handle:
         return
     # If the handles have been prefetched, then there is no need to call
     # `_unshard()` again
     if not handle._prefetched:
-        _unshard_t2p2(state, handle, state._unshard_stream, state._pre_unshard_stream)
+        _unshard(state, handle, state._unshard_stream, state._pre_unshard_stream)
     handle._needs_pre_forward_unshard = False
     # Don't wait during trace
     if not torch.distributed._functional_collectives.is_torchdynamo_compiling():
@@ -1559,7 +1559,7 @@ def _pre_backward_hook_t2p1(
             Module]).
     """
     from torch.distributed.fsdp._runtime_utils import (_register_post_backward_final_callback, _reset_flat_param_grad_info_if_needed,
-                                                       _prefetch_handle, _PrefetchMode)
+                                                       _prefetch_handle, _PrefetchMode, _unshard)
     from torch.distributed.fsdp._common_utils import TrainingState, _is_composable, _assert_in_training_states, HandleTrainingState
     # Only run the pre-backward hook once per group of handles involved in the
     # same module forward computation
@@ -1590,14 +1590,14 @@ def _pre_backward_hook_t2p1(
             # If the handles have been prefetched, then there is no need to
             # call `_unshard()` again
             if not handle._prefetched:
-                _unshard_t2p2(
+                _unshard(
                     state,
                     handle,
                     state._unshard_stream,
                     state._pre_unshard_stream,
                 )
             for unshard_stream in state._all_unshard_streams.values():
-                    state._device_handle.current_stream().wait_stream(unshard_stream)
+                state._device_handle.current_stream().wait_stream(unshard_stream)
 
         # Set this to `False` to ensure that a mistargeted prefetch does not
         # actually unshard these handles
