@@ -93,3 +93,20 @@ def patch_pytorch():
         # Monkeypatch dtensor support
         from composer.trainer.mosaic_fsdp_utils import init_fn_t2p2p0
         FullyShardedDataParallel.__init__ = init_fn_t2p2p0  # type: ignore
+    
+    elif version.parse(torch.__version__) < version.parse('2.3.1'):
+        # Monkey patch for torch < 2.3.1 ie torch == 2.3.0
+
+        # Better overlap communication and computation
+        from torch.distributed.fsdp import _runtime_utils
+
+        from composer.trainer.mosaic_fsdp_utils import (_root_pre_forward, _share_state_and_init_handle_attrs_t2p2,
+                                                        _wait_for_computation_stream, forward)
+        _runtime_utils._share_state_and_init_handle_attrs = _share_state_and_init_handle_attrs_t2p2
+        _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
+        _runtime_utils._root_pre_forward = _root_pre_forward
+        FullyShardedDataParallel.forward = forward
+
+        # Monkeypatch dtensor support
+        from composer.trainer.mosaic_fsdp_utils import init_fn_t2p2p0
+        FullyShardedDataParallel.__init__ = init_fn_t2p2p0  # type: ignore
