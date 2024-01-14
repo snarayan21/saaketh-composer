@@ -97,14 +97,20 @@ def patch_pytorch():
         _runtime_utils._validate_and_get_hybrid_shard_state = lambda *args, **kwargs: None
 
         # Better overlap communication and computation
-        from torch.distributed.fsdp import _runtime_utils
+        # from torch.distributed.fsdp import _runtime_utils
 
-        from composer.trainer.mosaic_fsdp_utils import (_root_pre_forward, _share_state_and_init_handle_attrs_t2p3,
-                                                        _wait_for_computation_stream, forward)
-        _runtime_utils._share_state_and_init_handle_attrs = _share_state_and_init_handle_attrs_t2p3
-        _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
-        _runtime_utils._root_pre_forward = _root_pre_forward
-        FullyShardedDataParallel.forward = forward
+        # from composer.trainer.mosaic_fsdp_utils import (_root_pre_forward, _share_state_and_init_handle_attrs_t2p3,
+        #                                                 _wait_for_computation_stream, forward)
+        # _runtime_utils._share_state_and_init_handle_attrs = _share_state_and_init_handle_attrs_t2p3
+        # _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
+        # _runtime_utils._root_pre_forward = _root_pre_forward
+        # FullyShardedDataParallel.forward = forward
+
+        # Ensure that the order of all-gathers in the backwards pass is correct.
+        from composer.trainer.mosaic_fsdp_utils import record_post_forward
+        from torch.distributed.fsdp import _exec_order_utils
+        _exec_order_utils._ExecOrderData.record_post_forward = record_post_forward
+
 
         # Note: this is the same patch as 2.2.0, we are just making a new if branch
         # for clarity and modularity of changes.

@@ -39,6 +39,8 @@ if TYPE_CHECKING:
         from torch.distributed.fsdp._common_utils import _FSDPState
     if version.parse(torch.__version__) > version.parse('2.1.2'):
         from torch.distributed.checkpoint.state_dict import StateDictOptions, _StateDictInfo
+    if version.parse(torch.__version__) > version.parse('2.2.0'):
+        from torch.distributed.fsdp._flat_param import FlatParamHandle
 
 
 log = logging.getLogger(__name__)
@@ -1527,3 +1529,32 @@ def _share_state_and_init_handle_attrs_t2p3(
     for attr_name, attr_values in attr_name_to_values.items():
         if len(attr_values) != 1:
             raise ValueError(f'Expects one homogeneous value for {attr_name} but got {attr_values}')
+        
+
+def record_post_forward(self, handle: Optional['FlatParamHandle']) -> None:
+        """
+        Records ``handles`` in the post-forward order, where ``handles`` should
+        be a group of handles used in the same module's forward. If ``handles``
+        is empty, then it is omitted.
+
+        Unlike :meth:`record_pre_forward`, this records the order *every*
+        iteration with the expectation that the recorded order is reset in
+        :meth:`next_iter`.
+        """
+        if not handle:
+            return
+        # Only record the first usage of a handles key
+        if handle._post_forward_index:
+            if 'attn.Wqkv.weight' in handle.flat_param._fqns:
+                # Post-forward of parent module will come after child module. Reverse this.
+                self.handles_post_forward_order.insert(-1, handle)
+            else:
+                self.handles_post_forward_order.append(handle)
+            return
+        index = len(self.handles_post_forward_order)
+        handle._post_forward_index = index
+        if 'attn.Wqkv.weight' in handle.flat_param._fqns:
+            # Post-forward of parent module will come after child module. Reverse this.
+            self.handles_post_forward_order.insert(-1, handle)
+        else:
+            self.handles_post_forward_order.append(handle)
