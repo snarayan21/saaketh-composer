@@ -54,6 +54,11 @@ def patch_pytorch():
         from torch.distributed.fsdp import _runtime_utils
         _runtime_utils._validate_and_get_hybrid_shard_state = lambda *args, **kwargs: None
 
+        # Ensure that the order of all-gathers in the backwards pass is correct.
+        from composer.trainer.mosaic_fsdp_utils import record_post_forward
+        from torch.distributed.fsdp import _exec_order_utils
+        _exec_order_utils._ExecOrderData.record_post_forward = record_post_forward
+
     elif version.parse(torch.__version__) < version.parse('2.1.3'):
         # Monkey patch for torch < 2.1.3 ie torch == 2.1.1, 2.1.2
 
@@ -68,6 +73,11 @@ def patch_pytorch():
         # _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
         # _runtime_utils._root_pre_forward = _root_pre_forward
         # FullyShardedDataParallel.forward = forward
+
+        # Ensure that the order of all-gathers in the backwards pass is correct.
+        from composer.trainer.mosaic_fsdp_utils import record_post_forward
+        from torch.distributed.fsdp import _exec_order_utils
+        _exec_order_utils._ExecOrderData.record_post_forward = record_post_forward
 
     elif version.parse(torch.__version__) < version.parse('2.2.1'):
         # Monkey patch for torch < 2.2.1 ie torch == 2.2.0
@@ -85,6 +95,11 @@ def patch_pytorch():
         # _runtime_utils._wait_for_computation_stream = _wait_for_computation_stream
         # _runtime_utils._root_pre_forward = _root_pre_forward
         # FullyShardedDataParallel.forward = forward
+
+        # Ensure that the order of all-gathers in the backwards pass is correct.
+        from composer.trainer.mosaic_fsdp_utils import record_post_forward
+        from torch.distributed.fsdp import _exec_order_utils
+        _exec_order_utils._ExecOrderData.record_post_forward = record_post_forward
 
         # Monkeypatch dtensor support
         from composer.trainer.mosaic_fsdp_utils import init_fn_t2p2p0
